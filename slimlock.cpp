@@ -1,5 +1,6 @@
 /* slimlock
  * Copyright (c) 2010-2012 Joel Burget <joelburget@gmail.com>
+ * Copyright (c) 2016 Christian Fiedler <fdlr.christian@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +19,7 @@
 #include <X11/Xutil.h>
 #include <X11/extensions/dpms.h>
 #include <security/pam_appl.h>
-#include <pthread.h>
+#include <thread>
 #include <err.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -32,236 +33,28 @@
 #include "util.h"
 #include "panel.h"
 
-#undef APPNAME
-#define APPNAME "slimlock"
-#define SLIMLOCKCFG SYSCONFDIR"/slimlock.conf"
-
 using namespace std;
 
-void setBackground(const string& themedir);
-void HideCursor();
-bool AuthenticateUser();
-static int ConvCallback(int num_msgs, const struct pam_message **msg,
-						struct pam_response **resp, void *appdata_ptr);
-string findValidRandomTheme(const string& set);
-void HandleSignal(int sig);
-void *RaiseWindow(void *data);
+/* CONSTANTS */
 
-// I really didn't wanna put these globals here, but it's the only way...
-Display* dpy;
-int scr;
-Window win;
-Cfg* cfg;
-Panel* loginPanel;
-string themeName = "";
+#undef APPNAME
+#define APPNAME		"slimlock"
+#define SLIMLOCKCFG	(SYSCONFDIR "/slimlock.conf")
 
-pam_handle_t *pam_handle;
-struct pam_conv conv = {ConvCallback, NULL};
+#define LOCKDIR		"/var/lock"
+#define LOCKFILEPATH	(LOCKDIR APPNAME ".lock")
 
-CARD16 dpms_standby, dpms_suspend, dpms_off, dpms_level;
-BOOL dpms_state, using_dpms;
-int term;
+#define DEV_CONSOLE	"/dev/console"
 
-static void
-die(const char *errstr, ...) {
-	va_list ap;
+/* GLOBALS */
 
-	va_start(ap, errstr);
-	vfprintf(stderr, errstr, ap);
-	va_end(ap);
-	exit(EXIT_FAILURE);
-}
+sig_atomic_t terminated = 0;
 
-int main(int argc, char **argv) {
-	if((argc == 2) && !strcmp("-v", argv[1]))
-		die(APPNAME "-" VERSION ", © 2010-2012 Joel Burget\n");
-	else if(argc != 1)
-		die("usage: " APPNAME " [-v]\n");
+/* FUNCTIONS */
 
-	void (*prev_fn)(int);
-
-	// restore DPMS settings should slimlock be killed in the line of duty
-	prev_fn = signal(SIGTERM, HandleSignal);
-	if (prev_fn == SIG_IGN) signal(SIGTERM, SIG_IGN);
-
-	// create a lock file to solve mutliple instances problem
-	// /var/lock used to be the place to put this, now it's /run/lock
-	// ...i think
-	struct stat statbuf;
-	int lock_file;
-
-	// try /run/lock first, since i believe it's preferred
-	if (!stat("/run/lock", &statbuf))
-		lock_file = open("/run/lock/" APPNAME ".lock", O_CREAT | O_RDWR, 0666);
-	else
-		lock_file = open("/var/lock/" APPNAME ".lock", O_CREAT | O_RDWR, 0666);
-
-	int rc = flock(lock_file, LOCK_EX | LOCK_NB);
-
-	if(rc) {
-		if(EWOULDBLOCK == errno)
-			die(APPNAME " already running\n");
-	}
-
-	unsigned int cfg_passwd_timeout;
-	// Read user's current theme
-	cfg = new Cfg;
-	cfg->readConf(CFGFILE);
-	cfg->readConf(SLIMLOCKCFG);
-	string themebase = "";
-	string themefile = "";
-	string themedir = "";
-	themeName = "";
-	themebase = string(THEMESDIR) + "/";
-	themeName = cfg->getOption("current_theme");
-	string::size_type pos;
-	if ((pos = themeName.find(",")) != string::npos) {
-		themeName = findValidRandomTheme(themeName);
-	}
-
-	bool loaded = false;
-	while (!loaded) {
-		themedir =  themebase + themeName;
-		themefile = themedir + THEMESFILE;
-		if (!cfg->readConf(themefile)) {
-			if (themeName == "default") {
-				cerr << APPNAME << ": Failed to open default theme file "
-					 << themefile << endl;
-				exit(ERR_EXIT);
-			} else {
-				cerr << APPNAME << ": Invalid theme in config: "
-					 << themeName << endl;
-				themeName = "default";
-			}
-		} else {
-			loaded = true;
-		}
-	}
-
-	const char *display = getenv("DISPLAY");
-	if (!display)
-		display = DISPLAY;
-
-	if(!(dpy = XOpenDisplay(display)))
-		die(APPNAME ": cannot open display\n");
-	scr = DefaultScreen(dpy);
-
-	XSetWindowAttributes wa;
-	wa.override_redirect = 1;
-	wa.background_pixel = BlackPixel(dpy, scr);
-
-	// Create a full screen window
-	Window root = RootWindow(dpy, scr);
-	win = XCreateWindow(dpy,
-	  root,
-	  0,
-	  0,
-	  DisplayWidth(dpy, scr),
-	  DisplayHeight(dpy, scr),
-	  0,
-	  DefaultDepth(dpy, scr),
-	  CopyFromParent,
-	  DefaultVisual(dpy, scr),
-	  CWOverrideRedirect | CWBackPixel,
-	  &wa);
-	XMapWindow(dpy, win);
-
-	XFlush(dpy);
-	for (int len = 1000; len; len--) {
-		if(XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime)
-			== GrabSuccess)
-			break;
-		usleep(1000);
-	}
-	XSelectInput(dpy, win, ExposureMask | KeyPressMask);
-
-	// This hides the cursor if the user has that option enabled in their
-	// configuration
-	HideCursor();
-
-	loginPanel = new Panel(dpy, scr, win, cfg, themedir, Panel::Mode_Lock);
-
-	int ret = pam_start(APPNAME, loginPanel->GetName().c_str(), &conv, &pam_handle);
-	// If we can't start PAM, just exit because slimlock won't work right
-	if (ret != PAM_SUCCESS)
-		die("PAM: %s\n", pam_strerror(pam_handle, ret));
-
-	// disable tty switching
-	if(cfg->getOption("tty_lock") == "1") {
-		if ((term = open("/dev/console", O_RDWR)) == -1)
-			perror("error opening console");
-
-		if ((ioctl(term, VT_LOCKSWITCH)) == -1)
-			perror("error locking console");
-	}
-
-	// Set up DPMS
-	unsigned int cfg_dpms_standby, cfg_dpms_off;
-	cfg_dpms_standby = Cfg::string2int(cfg->getOption("dpms_standby_timeout").c_str());
-	cfg_dpms_off = Cfg::string2int(cfg->getOption("dpms_off_timeout").c_str());
-	using_dpms = DPMSCapable(dpy) && (cfg_dpms_standby > 0);
-	if (using_dpms) {
-		DPMSGetTimeouts(dpy, &dpms_standby, &dpms_suspend, &dpms_off);
-
-		DPMSSetTimeouts(dpy, cfg_dpms_standby,
-						cfg_dpms_standby, cfg_dpms_off);
-
-		DPMSInfo(dpy, &dpms_level, &dpms_state);
-		if (!dpms_state)
-			DPMSEnable(dpy);
-	}
-
-	// Get password timeout
-	cfg_passwd_timeout = Cfg::string2int(cfg->getOption("wrong_passwd_timeout").c_str());
-	// Let's just make sure it has a sane value
-	cfg_passwd_timeout = cfg_passwd_timeout > 60 ? 60 : cfg_passwd_timeout;
-
-	pthread_t raise_thread;
-	pthread_create(&raise_thread, NULL, RaiseWindow, NULL);
-
-	// Main loop
-	while (true)
-	{
-		loginPanel->ResetPasswd();
-
-		// AuthenticateUser returns true if authenticated
-		if (AuthenticateUser())
-			break;
-
-		loginPanel->WrongPassword(cfg_passwd_timeout);
-	}
-
-	// kill thread before destroying the window that it's supposed to be raising
-	pthread_cancel(raise_thread);
-
-	loginPanel->ClosePanel();
-	delete loginPanel;
-
-	// Get DPMS stuff back to normal
-	if (using_dpms) {
-		DPMSSetTimeouts(dpy, dpms_standby, dpms_suspend, dpms_off);
-		// turn off DPMS if it was off when we entered
-		if (!dpms_state)
-			DPMSDisable(dpy);
-	}
-
-	XCloseDisplay(dpy);
-
-	close(lock_file);
-
-	if(cfg->getOption("tty_lock") == "1") {
-		if ((ioctl(term, VT_UNLOCKSWITCH)) == -1) {
-			perror("error unlocking console");
-		}
-	}
-	close(term);
-
-	return 0;
-}
-
-void HideCursor()
+static void HideCursor(Cfg& cfg, Display *dpy, Window win)
 {
-	if (cfg->getOption("hidecursor") == "true") {
+	if (cfg.getOption("hidecursor") == "true") {
 		XColor black;
 		char cursordata[1];
 		Pixmap cursorpixmap;
@@ -278,14 +71,16 @@ void HideCursor()
 	}
 }
 
-static int ConvCallback(int num_msgs, const struct pam_message **msg,
-						struct pam_response **resp, void *appdata_ptr)
+static int ConvCallback(int num_msgs, const pam_message **msg,
+						pam_response **resp, void *appdata_ptr)
 {
+	auto* loginPanel = static_cast<Panel*>(appdata_ptr);
+
 	loginPanel->EventHandler(Panel::Get_Passwd);
 
 	// PAM expects an array of responses, one for each message
-	if (num_msgs == 0 ||
-		(*resp = (pam_response*) calloc(num_msgs, sizeof(struct pam_message))) == NULL)
+	*resp = static_cast<pam_response*>( calloc(num_msgs, sizeof(pam_message)) );
+	if (num_msgs == 0 || *resp == nullptr)
 		return PAM_BUF_ERR;
 
 	for (int i = 0; i < num_msgs; i++) {
@@ -295,7 +90,10 @@ static int ConvCallback(int num_msgs, const struct pam_message **msg,
 
 		// return code is currently not used but should be set to zero
 		resp[i]->resp_retcode = 0;
-		if ((resp[i]->resp = strdup(loginPanel->GetPasswd().c_str())) == NULL) {
+		resp[i]->resp = strdup(loginPanel->GetPasswd().c_str());
+
+		if (resp[i]->resp == nullptr){
+			/* TODO: check if memory leak possible */
 			free(*resp);
 			return PAM_BUF_ERR;
 		}
@@ -304,12 +102,12 @@ static int ConvCallback(int num_msgs, const struct pam_message **msg,
 	return PAM_SUCCESS;
 }
 
-bool AuthenticateUser()
+static bool AuthenticateUser(pam_handle_t *pam_handle)
 {
-	return(pam_authenticate(pam_handle, 0) == PAM_SUCCESS);
+	return pam_authenticate(pam_handle, 0) == PAM_SUCCESS;
 }
 
-string findValidRandomTheme(const string& set)
+static string findValidRandomTheme(const string& set)
 {
 	// extract random theme from theme set; return empty string on error
 	string name = set;
@@ -339,8 +137,222 @@ string findValidRandomTheme(const string& set)
 	return name;
 }
 
-void HandleSignal(int sig)
+static void die()
 {
+	exit(EXIT_FAILURE);
+}
+
+static void HandleSignal(int sig)
+{
+	++terminated;
+}
+
+static void setup_signal()
+{
+	void (*prev_fn)(int);
+
+	// restore DPMS settings should slimlock be killed in the line of duty
+	prev_fn = signal(SIGTERM, HandleSignal);
+	if (prev_fn == SIG_IGN) signal(SIGTERM, SIG_IGN);
+}
+
+/* CLASSES */
+
+class LockFile{
+	int fd;
+public:
+	LockFile(const char *path)
+	{
+		fd = open(path, O_CREAT | O_RDWR, 0666);
+		if(fd != -1){
+			if(flock(fd, LOCK_EX | LOCK_NB) != 0){
+				close(fd);
+				fd = -1;
+			}
+		}
+	}
+	operator bool()
+	{
+		return fd != -1;
+	}
+	~LockFile()
+	{
+		if(fd != -1){
+			flock(fd, LOCK_UN);
+			close(fd);
+		}
+	}
+};
+
+/* MAIN */
+
+int main(int argc, char **argv)
+{
+	if((argc == 2) && strcmp("-v", argv[1]) == 0){
+		cerr << APPNAME "-" VERSION ", © 2010-2012 Joel Burget" << endl;
+		die();
+	}else if(argc != 1){
+		cerr << "usage: " APPNAME " [-v]" << endl;
+		die();
+	}
+
+	setup_signal();
+
+	// create a lock file to solve multiple instances problem
+	LockFile lock_file(LOCKFILEPATH);
+
+	if(!lock_file){
+		cerr << APPNAME " already running" << endl;
+		die();
+	}
+
+	unsigned int cfg_passwd_timeout;
+	// Read user's current theme
+	Cfg cfg;
+	cfg.readConf(CFGFILE);
+	cfg.readConf(SLIMLOCKCFG);
+
+	string themefile, themedir;
+	string themebase( string(THEMESDIR) + '/' );
+	string themeName( cfg.getOption("current_theme") );
+
+	auto pos = themeName.find(",");
+	if (pos != string::npos) {
+		themeName = findValidRandomTheme(themeName);
+	}
+
+	bool loaded = false;
+	while (!loaded) {
+		themedir = themebase + themeName;
+		themefile = themedir + THEMESFILE;
+		if (!cfg.readConf(themefile)) {
+			if (themeName == "default") {
+				cerr << APPNAME << ": Failed to open default theme file "
+					 << themefile << endl;
+				die();
+			} else {
+				cerr << APPNAME << ": Invalid theme in config: "
+					 << themeName << endl;
+				themeName = "default";
+			}
+		} else {
+			loaded = true;
+		}
+	}
+
+	const char *display = getenv("DISPLAY");
+	if (display == nullptr)
+		display = DISPLAY;
+
+	Display* dpy = XOpenDisplay(display);
+	if(dpy == nullptr){
+		cerr << APPNAME ": cannot open display" << endl;
+		die();
+	}
+	int scr = DefaultScreen(dpy);
+
+	XSetWindowAttributes wa;
+	wa.override_redirect = 1;
+	wa.background_pixel = BlackPixel(dpy, scr);
+
+	// Create a full screen window
+	Window root = RootWindow(dpy, scr);
+	Window win = XCreateWindow(dpy,
+		root,
+		0, 0,
+		DisplayWidth(dpy, scr),
+		DisplayHeight(dpy, scr),
+		0,
+		DefaultDepth(dpy, scr),
+		CopyFromParent,
+		DefaultVisual(dpy, scr),
+		CWOverrideRedirect | CWBackPixel,
+		&wa);
+	XMapWindow(dpy, win);
+
+	XFlush(dpy);
+	for (int len = 1000; len; len--) {
+		if(XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime)
+			== GrabSuccess)
+			break;
+		usleep(1000);
+	}
+	XSelectInput(dpy, win, ExposureMask | KeyPressMask);
+
+	// This hides the cursor if the user has that option enabled in their
+	// configuration
+	HideCursor(cfg, dpy, win);
+
+	Panel loginPanel(dpy, scr, win, &cfg, themedir, Panel::Mode_Lock);
+
+	pam_handle_t *pam_handle;
+	pam_conv conv = {ConvCallback, &loginPanel};
+
+	int ret = pam_start(APPNAME, loginPanel.GetName().c_str(), &conv, &pam_handle);
+	// If we can't start PAM, just exit because slimlock won't work right
+	if (ret != PAM_SUCCESS){
+		cerr << "PAM: " << pam_strerror(pam_handle, ret) << endl;
+		die();
+	}
+
+	// disable tty switching
+	int console;
+	if(cfg.getOption("tty_lock") == "1") {
+		console = open(DEV_CONSOLE, O_RDWR);
+		if (console == -1)
+			perror("error opening console");
+
+		if (ioctl(console, VT_LOCKSWITCH) == -1)
+			perror("error locking console");
+	}
+
+	// Set up DPMS
+	CARD16 dpms_standby, dpms_suspend, dpms_off, dpms_level;
+	BOOL dpms_state, using_dpms;
+	unsigned int cfg_dpms_standby, cfg_dpms_off;
+	cfg_dpms_standby = Cfg::string2int(cfg.getOption("dpms_standby_timeout").c_str());
+	cfg_dpms_off = Cfg::string2int(cfg.getOption("dpms_off_timeout").c_str());
+	using_dpms = DPMSCapable(dpy) && (cfg_dpms_standby > 0);
+	if (using_dpms) {
+		DPMSGetTimeouts(dpy, &dpms_standby, &dpms_suspend, &dpms_off);
+
+		DPMSSetTimeouts(dpy, cfg_dpms_standby,
+						cfg_dpms_standby, cfg_dpms_off);
+
+		DPMSInfo(dpy, &dpms_level, &dpms_state);
+		if (!dpms_state)
+			DPMSEnable(dpy);
+	}
+
+	// Get password timeout
+	cfg_passwd_timeout = Cfg::string2int(cfg.getOption("wrong_passwd_timeout").c_str());
+	// Let's just make sure it has a sane value
+	cfg_passwd_timeout = cfg_passwd_timeout > 60 ? 60 : cfg_passwd_timeout;
+
+	thread raise_thread([&dpy,&win]{
+		while(1) {
+			XRaiseWindow(dpy, win);
+			sleep(1);
+		}
+	});
+
+	// Main loop
+	while (terminated == 0)
+	{
+		loginPanel.ResetPasswd();
+
+		// AuthenticateUser returns true if authenticated
+		if (AuthenticateUser(pam_handle))
+			break;
+
+		loginPanel.WrongPassword(cfg_passwd_timeout);
+	}
+
+	// join thread before destroying the window that it's supposed to be raising
+	raise_thread.join();
+
+	loginPanel.ClosePanel();
+
 	// Get DPMS stuff back to normal
 	if (using_dpms) {
 		DPMSSetTimeouts(dpy, dpms_standby, dpms_suspend, dpms_off);
@@ -349,22 +361,15 @@ void HandleSignal(int sig)
 			DPMSDisable(dpy);
 	}
 
-	if ((ioctl(term, VT_UNLOCKSWITCH)) == -1) {
-		perror("error unlocking console");
-	}
-	close(term);
+	XCloseDisplay(dpy);
 
-	loginPanel->ClosePanel();
-	delete loginPanel;
-
-	die(APPNAME ": Caught signal; dying\n");
-}
-
-void* RaiseWindow(void *data) {
-	while(1) {
-		XRaiseWindow(dpy, win);
-		sleep(1);
+	if(cfg.getOption("tty_lock") == "1") {
+		if ((ioctl(console, VT_UNLOCKSWITCH)) == -1) {
+			perror("error unlocking console");
+		}
+		close(console);
 	}
 
-	return (void *)0;
+	return 0;
 }
+
