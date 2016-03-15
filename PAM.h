@@ -19,41 +19,52 @@
 namespace PAM {
 	class Exception{
 	public:
-		int errnum;
+		const char* func_name;
 		std::string errstr;
-		std::string func_name;
+		int errnum;
+
 		Exception(pam_handle_t* _pam_handle,
-				  const std::string& _func_name,
-				  int _errnum);
-		virtual ~Exception(void);
+				  const char* _func_name,
+				  int _errnum):
+			func_name(_func_name),
+			errnum(_errnum)
+		{
+			try{
+				errstr = pam_strerror(_pam_handle, _errnum);
+			}catch(...){
+				/* strong guarantee: string will be empty */
+			}
+		}
+
+		virtual ~Exception();
 	};
 
 	class Auth_Exception: public Exception{
 	public:
 		Auth_Exception(pam_handle_t* _pam_handle,
-					   const std::string& _func_name,
+					   const char* _func_name,
 					   int _errnum);
 	};
 
 	class Cred_Exception: public Exception{
 	public:
 		Cred_Exception(pam_handle_t* _pam_handle,
-					   const std::string& _func_name,
+					   const char* _func_name,
 					   int _errnum);
 	};
 
 
 	class Authenticator{
 	private:
-		struct pam_conv pam_conversation;
+		pam_conv pam_conversation;
 		pam_handle_t* pam_handle;
 		int last_result;
 
-		int _end(void);
+		int _end();
 	public:
 		typedef int (conversation)(int num_msg,
-						   const struct pam_message **msg,
-						   struct pam_response **resp,
+						   const pam_message **msg,
+						   pam_response **resp,
 						   void *appdata_ptr);
 
 		enum ItemType {
@@ -71,27 +82,30 @@ namespace PAM {
 
 	public:
 		Authenticator(conversation* conv, void* data=0);
-		~Authenticator(void);
+		~Authenticator();
 		
+		void start(const char* service);
 		void start(const std::string& service);
-		void end(void);
-		void set_item(const ItemType item, const void* value);
-		const void* get_item(const ItemType item);
+		void end();
+		void set_item(ItemType item, const void* value);
+		const void* get_item(ItemType item);
 #ifdef __LIBPAM_VERSION
-		void fail_delay(const unsigned int micro_sec);
+		void fail_delay(unsigned int micro_sec);
 #endif
-		void authenticate(void);
-		void open_session(void);
-		void close_session(void);
+		void authenticate();
+		void open_session();
+		void close_session();
 		void setenv(const std::string& key, const std::string& value);
+		void delenv(const char* key);
 		void delenv(const std::string& key);
+		const char* getenv(const char* key);
 		const char* getenv(const std::string& key);
-		char** getenvlist(void);
+		char** getenvlist();
 
 	private:
 		/* Explicitly disable copy constructor and copy assignment */
-		Authenticator(const PAM::Authenticator&);
-		Authenticator& operator=(const PAM::Authenticator&);
+		Authenticator(const PAM::Authenticator&) = delete;
+		Authenticator& operator=(const PAM::Authenticator&) = delete;
 	};
 }
 

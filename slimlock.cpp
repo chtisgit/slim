@@ -74,9 +74,9 @@ die(const char *errstr, ...) {
 
 int main(int argc, char **argv) {
 	if((argc == 2) && !strcmp("-v", argv[1]))
-		die(APPNAME"-"VERSION", © 2010-2012 Joel Burget\n");
+		die(APPNAME "-" VERSION ", © 2010-2012 Joel Burget\n");
 	else if(argc != 1)
-		die("usage: "APPNAME" [-v]\n");
+		die("usage: " APPNAME " [-v]\n");
 
 	void (*prev_fn)(int);
 
@@ -92,15 +92,15 @@ int main(int argc, char **argv) {
 
 	// try /run/lock first, since i believe it's preferred
 	if (!stat("/run/lock", &statbuf))
-		lock_file = open("/run/lock/"APPNAME".lock", O_CREAT | O_RDWR, 0666);
+		lock_file = open("/run/lock/" APPNAME ".lock", O_CREAT | O_RDWR, 0666);
 	else
-		lock_file = open("/var/lock/"APPNAME".lock", O_CREAT | O_RDWR, 0666);
+		lock_file = open("/var/lock/" APPNAME ".lock", O_CREAT | O_RDWR, 0666);
 
 	int rc = flock(lock_file, LOCK_EX | LOCK_NB);
 
 	if(rc) {
 		if(EWOULDBLOCK == errno)
-			die(APPNAME" already running\n");
+			die(APPNAME " already running\n");
 	}
 
 	unsigned int cfg_passwd_timeout;
@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
 		display = DISPLAY;
 
 	if(!(dpy = XOpenDisplay(display)))
-		die(APPNAME": cannot open display\n");
+		die(APPNAME ": cannot open display\n");
 	scr = DefaultScreen(dpy);
 
 	XSetWindowAttributes wa;
@@ -357,7 +357,7 @@ void HandleSignal(int sig)
 	loginPanel->ClosePanel();
 	delete loginPanel;
 
-	die(APPNAME": Caught signal; dying\n");
+	die(APPNAME ": Caught signal; dying\n");
 }
 
 void* RaiseWindow(void *data) {
