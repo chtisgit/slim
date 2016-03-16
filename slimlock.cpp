@@ -68,7 +68,7 @@ sig_atomic_t terminated = 0;
 
 static void HideCursor(Cfg& cfg, Display *dpy, Window win)
 {
-	if (cfg.getOption("hidecursor") == "true") {
+	if (cfg.optionTrue("hidecursor")) {
 		XColor black;
 		char cursordata[1];
 		Pixmap cursorpixmap;
@@ -158,7 +158,7 @@ static void die()
 
 static void HandleSignal(int sig)
 {
-	++terminated;
+	terminated = 1;
 }
 
 static void setup_signal()
@@ -167,7 +167,9 @@ static void setup_signal()
 
 	// restore DPMS settings should slimlock be killed in the line of duty
 	prev_fn = signal(SIGTERM, HandleSignal);
+#if 0
 	if (prev_fn == SIG_IGN) signal(SIGTERM, SIG_IGN);
+#endif
 }
 
 /* CLASSES */
@@ -221,7 +223,6 @@ int main(int argc, char **argv)
 		die();
 	}
 
-	unsigned int cfg_passwd_timeout;
 	// Read user's current theme
 	Cfg cfg;
 	cfg.readConf(CFGFILE);
@@ -344,12 +345,13 @@ int main(int argc, char **argv)
 	}
 
 	// Get password timeout
+	unsigned int cfg_passwd_timeout;
 	cfg_passwd_timeout = Cfg::string2int(cfg.getOption("wrong_passwd_timeout").c_str());
 	// Let's just make sure it has a sane value
 	cfg_passwd_timeout = cfg_passwd_timeout > 60 ? 60 : cfg_passwd_timeout;
 
-	thread raise_thread([&dpy,&win]{
-		while(1) {
+	thread raise_thread([&dpy,&win](){
+		while(terminated == 0) {
 			XRaiseWindow(dpy, win);
 			sleep(1);
 		}
@@ -368,6 +370,7 @@ int main(int argc, char **argv)
 	}
 
 	// join thread before destroying the window that it's supposed to be raising
+	terminated = 1;
 	raise_thread.join();
 
 	loginPanel.ClosePanel();
