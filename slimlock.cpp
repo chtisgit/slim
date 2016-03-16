@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <sys/types.h>
 #include <sys/ioctl.h>
-#include <linux/vt.h>
 #include <X11/keysym.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -29,6 +28,10 @@
 #include <sys/file.h>
 #include <fcntl.h>
 
+#ifdef __linux__
+#include <linux/vt.h>
+#endif
+
 #include "cfg.h"
 #include "util.h"
 #include "panel.h"
@@ -41,8 +44,19 @@ using namespace std;
 #define APPNAME		"slimlock"
 #define SLIMLOCKCFG	(SYSCONFDIR "/slimlock.conf")
 
+#ifndef LOCKDIR
+
+#if defined(__linux__)
 #define LOCKDIR		"/var/lock"
-#define LOCKFILEPATH	(LOCKDIR APPNAME ".lock")
+#elif defined(__unix__)
+#define LOCKDIR		"/var/run"
+#else
+#error "LOCKDIR not defined"
+#endif
+
+#endif /* LOCKDIR */
+
+#define LOCKFILEPATH	(LOCKDIR "/" APPNAME ".lock")
 
 #define DEV_CONSOLE	"/dev/console"
 
@@ -164,6 +178,7 @@ public:
 	LockFile(const char *path)
 	{
 		fd = open(path, O_CREAT | O_RDWR, 0666);
+		cerr << "opening " << path << endl;
 		if(fd != -1){
 			if(flock(fd, LOCK_EX | LOCK_NB) != 0){
 				close(fd);
@@ -297,13 +312,17 @@ int main(int argc, char **argv)
 
 	// disable tty switching
 	int console;
-	if(cfg.getOption("tty_lock") == "1") {
+	if(cfg.optionTrue("tty_lock")) {
 		console = open(DEV_CONSOLE, O_RDWR);
 		if (console == -1)
 			perror("error opening console");
 
+#ifdef __linux__
 		if (ioctl(console, VT_LOCKSWITCH) == -1)
 			perror("error locking console");
+#else
+		cerr << APPNAME ": tty_lock has no effect! (currently linux only)" << endl;
+#endif
 	}
 
 	// Set up DPMS
@@ -363,10 +382,12 @@ int main(int argc, char **argv)
 
 	XCloseDisplay(dpy);
 
-	if(cfg.getOption("tty_lock") == "1") {
+	if(cfg.optionTrue("tty_lock")) {
+#ifdef __linux__
 		if ((ioctl(console, VT_UNLOCKSWITCH)) == -1) {
 			perror("error unlocking console");
 		}
+#endif
 		close(console);
 	}
 

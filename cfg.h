@@ -23,16 +23,22 @@
 #define THEMESFILE "/slim.theme"
 
 class Cfg {
+	void fillSessionList();
+
+	std::map<std::string,std::string> options;
+	std::vector<std::pair<std::string,std::string> > sessions;
+	int currentSession;
+	std::string error;
 
 public:
 	Cfg();
-	~Cfg();
 
 	bool readConf(std::string configfile);
 	std::string parseOption(std::string line, std::string option);
 	const std::string& getError() const;
 	std::string& getOption(std::string option);
-	int getIntOption(std::string option);
+	bool optionTrue(std::string option) const;
+	int getIntOption(std::string option) const;
 	std::string getWelcomeMessage();
 
 	static int absolutepos(const std::string &position, int max, int width);
@@ -41,16 +47,7 @@ public:
 					  char c, bool useEmpty=true);
 	static std::string Trim(const std::string &s);
 
-    std::pair<std::string,std::string> nextSession();
-
-private:
-	void fillSessionList();
-
-private:
-	std::map<std::string,std::string> options;
-    std::vector<std::pair<std::string,std::string> > sessions;
-	int currentSession;
-	std::string error;
+	std::pair<std::string,std::string> nextSession();
 };
 
 #endif /* _CFG_H_ */

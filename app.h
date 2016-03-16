@@ -54,7 +54,7 @@ private:
 	void Suspend();
 	void Console();
 	void Exit();
-	void KillAllClients(Bool top);
+	void KillAllClients(bool top);
 	void ReadConfig();
 	void OpenLog();
 	void CloseLog();
@@ -65,14 +65,14 @@ private:
 
 	bool AuthenticateUser(bool focuspass);
 
-	static std::string findValidRandomTheme(const std::string &set);
+	static std::string findValidRandomTheme(std::string set);
 	static void replaceVariables(std::string &input,
 								 const std::string &var,
 								 const std::string &value);
 
 	/* Server functions */
 	int StartServer();
-	int ServerTimeout(int timeout, char *string);
+	int ServerTimeout(int timeout, const char *string);
 	int WaitForServer();
 
 	/* Private data */
@@ -94,12 +94,11 @@ private:
 	/* Options */
 	char *DispName;
 
-	Cfg *cfg;
+	Cfg cfg;
 
 	Pixmap BackgroundPixmap;
 
 	void blankScreen();
-	Image *image;
 	Atom BackgroundPixmapId;
 	void setBackground(const std::string &themedir);
 

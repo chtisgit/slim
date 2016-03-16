@@ -135,9 +135,6 @@ Cfg::Cfg()
 	error = "";
 }
 
-Cfg::~Cfg() {
-	options.clear();
-}
 /*
  * Creates the Cfg object and parses
  * known options from the given configfile / themefile
@@ -190,6 +187,12 @@ string Cfg::parseOption(string line, string option ) {
 
 const string& Cfg::getError() const {
 	return error;
+}
+
+bool Cfg::optionTrue(string option) const {
+	/* TODO: case insensitive comparison */
+	return options.at(option) == "yes" || options.at(option) == "on" ||
+		options.at(option) == "1" || options.at(option) == "true";
 }
 
 string& Cfg::getOption(string option) {
@@ -251,8 +254,8 @@ int Cfg::string2int(const char* string, bool* ok) {
 	return (*err == 0) ? l : 0;
 }
 
-int Cfg::getIntOption(std::string option) {
-	return string2int(options[option].c_str());
+int Cfg::getIntOption(std::string option) const {
+	return string2int(options.at(option).c_str());
 }
 
 /* Get absolute position */

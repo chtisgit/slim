@@ -12,7 +12,7 @@
 
 using namespace std;
 
-static class LogUnit {
+extern class LogUnit {
 	ofstream logFile;
 public:
 	bool openLog(const char * filename);
