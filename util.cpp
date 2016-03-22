@@ -9,10 +9,16 @@
 
 #include <sys/types.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <unistd.h>
+
+#ifdef __linux__
+#include <linux/random.h>
+#include <sys/syscall.h>
+#endif
+
 
 #include "util.h"
 
@@ -46,16 +52,39 @@ void Util::srandom(unsigned long seed)
 	::srandom(seed);
 }
 
-long Util::random(void)
+long Util::random()
 {
 	return ::random();
+}
+
+/*
+	gathering entropy from OS specific functions
+	if there is no specific function called for an OS or the
+	function fails, we still get a "random" value from the stack
+*/
+static long platform_seed()
+{
+	union{
+		long val;
+		char buf[sizeof(val)];
+	} ret;
+
+#if defined(__linux__) && defined(SYS_getrandom)
+	syscall(SYS_getrandom, ret.buf, sizeof(ret.buf), 0);
+#elif defined(__OpenBSD__) || defined(__FreeBSD__)
+	arc4random_buf(ret.buf, sizeof(ret.buf));
+#else
+#warning no platform specific seed function invoked
+#endif
+
+	return ret.val;
 }
 
 /*
  * Makes seed for the srandom() using "random" values obtained from
  * getpid(), time(NULL) and others.
  */
-long Util::makeseed(void)
+long Util::makeseed()
 {
 	struct timespec ts;
 	long pid = getpid();
@@ -65,5 +94,5 @@ long Util::makeseed(void)
 		ts.tv_sec = ts.tv_nsec = 0;
 	}
 
-	return pid + tm + (ts.tv_sec ^ ts.tv_nsec);
+	return (pid + tm + (ts.tv_sec ^ ts.tv_nsec)) ^ platform_seed();
 }
