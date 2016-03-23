@@ -760,7 +760,7 @@ string Panel::getSession() {
 
 /* choose next available session type */
 void Panel::SwitchSession() {
-        auto ses = const_cast<const pair<string,string>&>(cfg->nextSession());
+        const auto& ses = cfg->nextSession();
         session_name = ses.first;
         session_exec = ses.second;
         if (session_name.size() > 0) {
