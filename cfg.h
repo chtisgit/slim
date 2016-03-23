@@ -15,12 +15,12 @@
 #include <map>
 #include <vector>
 
-#define INPUT_MAXLENGTH_NAME	30
-#define INPUT_MAXLENGTH_PASSWD  50
+#define INPUT_MAXLENGTH_NAME		30
+#define INPUT_MAXLENGTH_PASSWD 		50
 
-#define CFGFILE SYSCONFDIR"/slim.conf"
-#define THEMESDIR PKGDATADIR"/themes"
-#define THEMESFILE "/slim.theme"
+#define CFGFILE		(SYSCONFDIR "/slim.conf")
+#define THEMESDIR	(PKGDATADIR "/themes")
+#define THEMESFILE	"/slim.theme"
 
 class Cfg {
 	void fillSessionList();
@@ -28,18 +28,16 @@ class Cfg {
 	std::map<std::string,std::string> options;
 	std::vector<std::pair<std::string,std::string> > sessions;
 	int currentSession;
-	std::string error;
 
 public:
 	Cfg();
 
-	bool readConf(std::string configfile);
-	std::string parseOption(std::string line, std::string option);
-	const std::string& getError() const;
-	std::string& getOption(std::string option);
+	bool readConf(const std::string& configfile);
+	std::string parseOption(const std::string& line, const std::string& option);
+	std::string& getOption(std::string option) ;
 	bool optionTrue(std::string option) const;
 	int getIntOption(std::string option) const;
-	std::string getWelcomeMessage();
+	std::string getWelcomeMessage() ;
 
 	static int absolutepos(const std::string &position, int max, int width);
 	static int string2int(const char *string, bool *ok = 0);
@@ -47,7 +45,7 @@ public:
 					  char c, bool useEmpty=true);
 	static std::string Trim(const std::string &s);
 
-	std::pair<std::string,std::string> nextSession();
+	std::pair<std::string,std::string>& nextSession();
 };
 
 #endif /* _CFG_H_ */

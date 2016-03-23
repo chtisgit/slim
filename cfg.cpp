@@ -131,27 +131,22 @@ Cfg::Cfg()
 	options.insert(option("show_welcome_msg", "0"));
 	options.insert(option("tty_lock", "1"));
 	options.insert(option("bell", "1"));
-
-	error = "";
 }
 
 /*
  * Creates the Cfg object and parses
  * known options from the given configfile / themefile
  */
-bool Cfg::readConf(string configfile) {
-	int n = -1;
-	size_t pos = 0;
-	string line, next, op, fn(configfile);
-	map<string,string>::iterator it;
-	ifstream cfgfile(fn.c_str());
+bool Cfg::readConf(const string& configfile) {
+	string line, next;
+	ifstream file(configfile);
 
-	if (!cfgfile) {
-		error = "Cannot read configuration file: " + configfile;
+	if (!file) {
 		return false;
 	}
-	while (getline(cfgfile, line)) {
-		if ((pos = line.find('\\')) != string::npos) {
+	while (getline(file, line)) {
+		auto pos = line.find('\\');
+		if (pos != string::npos) {
 			if (line.length() == pos + 1) {
 				line.replace(pos, 1, " ");
 				next = next + line;
@@ -164,16 +159,14 @@ bool Cfg::readConf(string configfile) {
 			line = next + line;
 			next = "";
 		}
-		it = options.begin();
-		while (it != options.end()) {
-			op = it->first;
-			n = line.find(op);
-			if (n == 0)
+
+		for(auto &opt_entry : options){
+			auto op = opt_entry.first;
+			if(line.find(op) == 0)
 				options[op] = parseOption(line, op);
-			++it;
 		}
 	}
-	cfgfile.close();
+	file.close();
 
 	fillSessionList();
 
@@ -181,12 +174,8 @@ bool Cfg::readConf(string configfile) {
 }
 
 /* Returns the option value, trimmed */
-string Cfg::parseOption(string line, string option ) {
+string Cfg::parseOption(const string& line, const string& option ) {
 	return Trim( line.substr(option.size(), line.size() - option.size()));
-}
-
-const string& Cfg::getError() const {
-	return error;
 }
 
 bool Cfg::optionTrue(string option) const {
@@ -201,45 +190,42 @@ string& Cfg::getOption(string option) {
 
 /* return a trimmed string */
 string Cfg::Trim( const string& s ) {
-	if ( s.empty() ) {
+	auto pos1 = s.find_first_not_of(" \t\n\v\f\r");
+	auto pos2 = s.find_last_not_of(" \t\n\v\f\r");
+	if(pos1 == 0 && pos2 == s.length()-1){
 		return s;
+	}else{
+		return s.substr(pos1,pos2-pos1+1);
 	}
-	int pos = 0;
-	string line = s;
-	int len = line.length();
-	while ( pos < len && isspace( line[pos] ) ) {
-		++pos;
-	}
-	line.erase( 0, pos );
-	pos = line.length()-1;
-	while ( pos > -1 && isspace( line[pos] ) ) {
-		--pos;
-	}
-	if ( pos != -1 ) {
-		line.erase( pos+1 );
-	}
-	return line;
 }
 
 /* Return the welcome message with replaced vars */
-string Cfg::getWelcomeMessage(){
+string Cfg::getWelcomeMessage() {
+	constexpr int MAX_NAME_LEN = 40;
+
 	string s = getOption("welcome_msg");
-	int n = s.find("%host");
+	auto n = s.find("%host");
 	if (n >= 0) {
 		string tmp = s.substr(0, n);
-		char host[40];
-		gethostname(host,40);
-		tmp = tmp + host;
-		tmp = tmp + s.substr(n+5, s.size() - n);
+		char host[MAX_NAME_LEN];
+		if(gethostname(host,MAX_NAME_LEN) == 0){
+			tmp += host;
+		}else{
+			tmp += "<unknown hostname>";
+		}
+		tmp += s.substr(n+5);
 		s = tmp;
 	}
 	n = s.find("%domain");
 	if (n >= 0) {
 		string tmp = s.substr(0, n);;
-		char domain[40];
-		getdomainname(domain,40);
-		tmp = tmp + domain;
-		tmp = tmp + s.substr(n+7, s.size() - n);
+		char domain[MAX_NAME_LEN];
+		if(getdomainname(domain,MAX_NAME_LEN) == 0){
+			tmp += domain;
+		}else{
+			tmp += "<unknown domain name>";
+		}
+		tmp += s.substr(n+7);
 		s = tmp;
 	}
 	return s;
@@ -247,7 +233,7 @@ string Cfg::getWelcomeMessage(){
 
 int Cfg::string2int(const char* string, bool* ok) {
 	char* err = 0;
-	int l = (int)strtol(string, &err, 10);
+	int l = static_cast<int>(strtol(string, &err, 10));
 	if (ok) {
 		*ok = (*err == 0);
 	}
@@ -260,7 +246,7 @@ int Cfg::getIntOption(std::string option) const {
 
 /* Get absolute position */
 int Cfg::absolutepos(const string& position, int max, int width) {
-	int n = position.find("%");
+	auto n = position.find('%');
 	if (n>0) { /* X Position expressed in percentage */
 		int result = (max*string2int(position.substr(0, n).c_str())/100) - (width / 2);
 		return result < 0 ? 0 : result ;
@@ -272,27 +258,28 @@ int Cfg::absolutepos(const string& position, int max, int width) {
 /* split a comma separated string into a vector of strings */
 void Cfg::split(vector<string>& v, const string& str, char c, bool useEmpty) {
 	v.clear();
-	string::const_iterator s = str.begin();
-	string tmp;
-	while (true) {
-		string::const_iterator begin = s;
-		while (*s != c && s != str.end()) { ++s; }
-	tmp = string(begin, s);
-	if (useEmpty || tmp.size() > 0)
+	auto pos = str.find(c);
+	size_t lastpos = 0;
+
+	while (pos != string::npos) {
+		auto tmp = str.substr(lastpos, pos-lastpos+1);
+		
+		if(useEmpty || tmp.length() > 0)
 			v.push_back(tmp);
-		if (s == str.end()) {
-			break;
-		}
-		if (++s == str.end()) {
-		if (useEmpty)
-				v.push_back("");
-			break;
-		}
+
+		lastpos = pos+1;
+		pos = str.find(c, lastpos);
+	}
+	if(lastpos < str.length() - 1){
+		v.push_back(str.substr(lastpos));
+	}
+	if(useEmpty){
+		v.emplace_back("");
 	}
 }
 
 void Cfg::fillSessionList(){
-	string strSessionDir  = getOption("sessiondir");
+	auto strSessionDir = getOption("sessiondir");
 
 	sessions.clear();
 
@@ -303,35 +290,28 @@ void Cfg::fillSessionList(){
 			struct dirent *pDirent = NULL;
 
 			while ((pDirent = readdir(pDir)) != NULL) {
-				string strFile(strSessionDir);
-				strFile += "/";
-				strFile += pDirent->d_name;
-
+				auto strFile = strSessionDir + '/' + pDirent->d_name;
 				struct stat oFileStat;
 
 				if (stat(strFile.c_str(), &oFileStat) == 0) {
-                    if (S_ISREG(oFileStat.st_mode) &&
-                            access(strFile.c_str(), R_OK) == 0){
-                        ifstream desktop_file( strFile.c_str() );
-                        if (desktop_file){
-                             string line, session_name = "", session_exec = "";
-                             while (getline( desktop_file, line )) {
-                                 if (line.substr(0, 5) == "Name=") {
-                                     session_name = line.substr(5);
-                                     if (!session_exec.empty())
-                                         break;
-                                 } else
-                                     if (line.substr(0, 5) == "Exec=") {
-                                         session_exec = line.substr(5);
-                                         if (!session_name.empty())
-                                             break;
-                                     }
-                             }
-                             desktop_file.close();
-                             pair<string,string> session(session_name,session_exec);
-                             sessions.push_back(session);
-                             cout << session_exec << " - " << session_name << endl;
-                        }
+					if (S_ISREG(oFileStat.st_mode) && access(strFile.c_str(), R_OK) == 0){
+						ifstream desktop_file( strFile );
+						if (desktop_file){
+							string line, session_name, session_exec;
+							while (getline( desktop_file, line )) {
+								if (line.substr(0, 5) == "Name=") {
+									session_name = line.substr(5);
+									if (!session_exec.empty())
+										break;
+								}else if(line.substr(0, 5) == "Exec=") {
+									session_exec = line.substr(5);
+									if (!session_name.empty())
+										break;
+								}
+							}
+							desktop_file.close();
+							sessions.emplace_back(session_name, session_exec);
+						}
 
 					}
 				}
@@ -341,12 +321,11 @@ void Cfg::fillSessionList(){
 	}
 
 	if (sessions.empty()){
-        pair<string,string> session("","");
-        sessions.push_back(session);
+		sessions.emplace_back(string(), string());
 	}
 }
 
-pair<string,string> Cfg::nextSession() {
+pair<string,string>& Cfg::nextSession() {
 	currentSession = (currentSession + 1) % sessions.size();
 	return sessions[currentSession];
 }
