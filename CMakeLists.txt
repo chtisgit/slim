@@ -53,8 +53,6 @@ set(slim_srcs
 	app.cpp
 	numlock.cpp
 	switchuser.cpp
-	png.c
-	jpeg.c
 )
 
 set(slimlock_srcs
