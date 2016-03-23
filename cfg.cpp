@@ -205,7 +205,7 @@ string Cfg::getWelcomeMessage() {
 
 	string s = getOption("welcome_msg");
 	auto n = s.find("%host");
-	if (n >= 0) {
+	if (n != string::npos) {
 		string tmp = s.substr(0, n);
 		char host[MAX_NAME_LEN];
 		if(gethostname(host,MAX_NAME_LEN) == 0){
@@ -217,7 +217,7 @@ string Cfg::getWelcomeMessage() {
 		s = tmp;
 	}
 	n = s.find("%domain");
-	if (n >= 0) {
+	if (n != string::npos) {
 		string tmp = s.substr(0, n);;
 		char domain[MAX_NAME_LEN];
 		if(getdomainname(domain,MAX_NAME_LEN) == 0){
