@@ -340,9 +340,9 @@ void App::Run() {
 
 	/* Set NumLock */
 	if (cfg.optionTrue("numlock")) {
-		NumLock::setOn(Dpy);
+		NumLockSetOn(Dpy);
 	} else {
-		NumLock::setOff(Dpy);
+		NumLockSetOff(Dpy);
 	}
 
 	/* Start looping */

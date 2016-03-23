@@ -16,10 +16,8 @@
 #include "numlock.h"
 #include <string.h>
 
-NumLock::NumLock() {
-}
-
-int NumLock::xkb_init(Display* dpy) {
+static int xkb_init(Display* dpy)
+{
 	int xkb_opcode, xkb_event, xkb_error;
 	int xkb_lmaj = XkbMajorVersion;
 	int xkb_lmin = XkbMinorVersion;
@@ -29,14 +27,15 @@ int NumLock::xkb_init(Display* dpy) {
 				   &xkb_lmaj, &xkb_lmin );
 }
 
-unsigned int NumLock::xkb_mask_modifier( XkbDescPtr xkb, const char *name ) {
+static unsigned int xkb_mask_modifier( XkbDescPtr xkb, const char *name )
+{
 	int i;
-	if( !xkb || !xkb->names )
+	if( xkb == nullptr || xkb->names == nullptr )
 		return 0;
 
 	for( i = 0; i < XkbNumVirtualMods; i++ ) {
 		char* modStr = XGetAtomName( xkb->dpy, xkb->names->vmods[i] );
-		if( modStr != NULL && strcmp(name, modStr) == 0 ) {
+		if( modStr != nullptr && strcmp(name, modStr) == 0 ) {
 			unsigned int mask;
 			XkbVirtualModsToReal( xkb, 1 << i, &mask );
 			return mask;
@@ -45,11 +44,12 @@ unsigned int NumLock::xkb_mask_modifier( XkbDescPtr xkb, const char *name ) {
 	return 0;
 }
 
-unsigned int NumLock::xkb_numlock_mask(Display* dpy) {
+static unsigned int xkb_numlock_mask(Display* dpy)
+{
 	XkbDescPtr xkb;
 
 	xkb = XkbGetKeyboard( dpy, XkbAllComponentsMask, XkbUseCoreKbd );
-	if( xkb != NULL ) {
+	if( xkb != nullptr ) {
 		unsigned int mask = xkb_mask_modifier( xkb, "NumLock" );
 		XkbFreeKeyboard( xkb, 0, True );
 		return mask;
@@ -57,7 +57,8 @@ unsigned int NumLock::xkb_numlock_mask(Display* dpy) {
 	return 0;
 }
 
-void NumLock::control_numlock(Display *dpy, bool flag) {
+static void control_numlock(Display *dpy, bool flag)
+{
 	unsigned int mask;
 
 	if( !xkb_init(dpy) )
@@ -73,11 +74,13 @@ void NumLock::control_numlock(Display *dpy, bool flag) {
 		XkbLockModifiers ( dpy, XkbUseCoreKbd, mask, 0);
 }
 
-void NumLock::setOn(Display *dpy) {
+void NumLockSetOn(Display *dpy)
+{
 	control_numlock(dpy, true);
 }
 
-void NumLock::setOff(Display *dpy) {
+void NumLockSetOff(Display *dpy)
+{
 	control_numlock(dpy, false);
 }
 
