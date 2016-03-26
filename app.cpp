@@ -984,9 +984,14 @@ int App::StartServer() {
 	return ServerPID;
 }
 
-/* FIXME !!! LONGJMP in C++ ?!*/
-jmp_buf CloseEnv;
-int IgnoreXIO(Display *d) {
+/* Ugly hack, but I don't know a better way...
+   XCloseDisplay (in StopServer) might call the IOErrorHandler (IgnoreXIO)
+   When that handler returns the program aborts, though
+   so we save the state before calling XCloseDisplay using setjmp and
+   restore it in the handler using longjmp
+*/
+static jmp_buf CloseEnv;
+static int IgnoreXIO(Display *d) {
 	logStream << APPNAME << ": connection to X server lost." << endl;
 	longjmp(CloseEnv, 1);
 }
@@ -1001,7 +1006,7 @@ void App::StopServer() {
 
 	/* Catch X error */
 	XSetIOErrorHandler(IgnoreXIO);
-	if(!setjmp(CloseEnv) && Dpy)
+	if(setjmp(CloseEnv) == 0 && Dpy != nullptr)
 		XCloseDisplay(Dpy);
 
 	/* Send HUP to process group */
