@@ -224,9 +224,9 @@ Panel::~Panel() {
 
 	XFreeGC(Dpy, TextGC);
 	XftFontClose(Dpy, font);
-	XftFontClose(Dpy, msgfont);
+	XftFontClose(Dpy, msgfont); // FIXME: sometimes SIGABRT
 	XftFontClose(Dpy, introfont);
-	XftFontClose(Dpy, welcomefont);
+	XftFontClose(Dpy, welcomefont); // FIXME: sometimes SIGABRT
 	XftFontClose(Dpy, enterfont);
 
 	if (mode == Mode_Lock)
